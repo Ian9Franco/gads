@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { auditAction } from "@/app/actions";
+import { auditAction, auditAllAction } from "@/app/actions";
 import { formatCustomerId, formatDate } from "@/lib/format";
 import { getStore } from "@/lib/store";
 
 export default async function AccountsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; conectada?: string; auditada?: string }>;
+  searchParams: Promise<{ error?: string; conectada?: string; auditada?: string; aviso?: string; lote?: string; fallidas?: string }>;
 }) {
   const params = await searchParams;
   const store = getStore();
@@ -20,9 +20,20 @@ export default async function AccountsPage({
         Si entrás por una cuenta administradora, el acceso figura como MCC. Si el cliente te invitó a su cuenta, figura como acceso directo. Las dos se descubren solas al conectar Google.
       </p>
       {params.conectada ? <p className="callout">Conexión guardada. Corré la primera auditoría cuando quieras.</p> : null}
+      {params.aviso ? <p className="callout">{params.aviso}</p> : null}
+      {params.lote ? (
+        <p className="callout">
+          Auditorías hechas: {params.lote}. Con error: {params.fallidas ?? "0"}.
+        </p>
+      ) : null}
       {params.error ? <p className="callout error">{params.error}</p> : null}
-      <p>
+      <p className="actions">
         <Link className="button" href="/api/google/start">Conectar Google Ads</Link>
+        {customers.some((customer) => !customer.isDemo) ? (
+          <form action={auditAllAction}>
+            <button type="submit">Auditar todas</button>
+          </form>
+        ) : null}
       </p>
       <div className="table-wrap">
         <table>

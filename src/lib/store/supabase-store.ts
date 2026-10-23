@@ -156,15 +156,32 @@ export function createSupabaseStore(client: SupabaseClient): AuditorStore {
       return (data ?? []).map(toConnection);
     },
     async saveConnection(input) {
-      const created = await client
+      const prior = await client
         .from("connections")
-        .insert({
-          google_email: input.googleEmail,
-          access_mode: input.accessMode,
-          refresh_token: input.refreshToken,
-        })
         .select("*")
-        .single();
+        .eq("google_email", input.googleEmail)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (prior.error) throw new Error(prior.error.message);
+      const created = prior.data?.[0]
+        ? await client
+            .from("connections")
+            .update({
+              access_mode: input.accessMode,
+              refresh_token: input.refreshToken,
+            })
+            .eq("id", prior.data[0].id)
+            .select("*")
+            .single()
+        : await client
+            .from("connections")
+            .insert({
+              google_email: input.googleEmail,
+              access_mode: input.accessMode,
+              refresh_token: input.refreshToken,
+            })
+            .select("*")
+            .single();
       if (created.error || !created.data) throw new Error(created.error?.message ?? "No se pudo guardar la conexión.");
       for (const incoming of input.customers) {
         const existing = await client

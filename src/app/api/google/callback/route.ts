@@ -41,17 +41,18 @@ export async function GET(request: Request) {
     headers: { Authorization: `Bearer ${token.access_token}` },
   });
   const profile = (await profileResponse.json()) as { email?: string };
-  const accounts = await discoverAccounts(new GoogleAdsClient(token.access_token));
-  if (accounts.length === 0) {
-    return NextResponse.redirect(new URL("/conectar?error=sin-cuentas", request.url));
+  const discovery = await discoverAccounts(new GoogleAdsClient(token.access_token));
+  if (discovery.accounts.length === 0) {
+    const reason = discovery.skipped[0] ?? "sin-cuentas";
+    return NextResponse.redirect(new URL(`/conectar?error=${encodeURIComponent(reason)}`, request.url));
   }
   const store = getStore();
   await store.ensureReady();
   await store.saveConnection({
     googleEmail: profile.email || "cuenta de Google",
-    accessMode: accessMode(accounts),
+    accessMode: accessMode(discovery.accounts),
     refreshToken: token.refresh_token,
-    customers: accounts.map((account) => ({
+    customers: discovery.accounts.map((account) => ({
       externalId: account.externalId,
       name: account.name,
       currencyCode: account.currencyCode,
@@ -60,5 +61,11 @@ export async function GET(request: Request) {
       loginCustomerId: account.loginCustomerId,
     })),
   });
-  return NextResponse.redirect(new URL("/cuentas?conectada=1", request.url));
+  const next = new URL("/cuentas?conectada=1", request.url);
+  if (discovery.skipped.length > 0) {
+    const count = discovery.skipped.length;
+    const lead = count === 1 ? "Se omitió 1 cuenta." : `Se omitieron ${count} cuentas.`;
+    next.searchParams.set("aviso", `${lead} ${discovery.skipped[0]}`);
+  }
+  return NextResponse.redirect(next);
 }

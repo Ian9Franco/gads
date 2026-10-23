@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { interpretFinding } from "@/lib/audit/narrative";
-import { auditStoredCustomer } from "@/lib/audit/run-customer";
+import { auditConnectedCustomers, auditStoredCustomer } from "@/lib/audit/run-customer";
 import { grantAccess } from "@/lib/auth";
 import { getStore } from "@/lib/store";
 import type { DecisionAction } from "@/lib/store/types";
@@ -20,13 +20,20 @@ export async function auditAction(formData: FormData) {
   try {
     await auditStoredCustomer(customerId);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Falló la auditoría.";
-    redirect(`/cuentas?error=${encodeURIComponent(message)}`);
+    redirect(`/cuentas?error=${encodeURIComponent(publicError(error))}`);
   }
   revalidatePath("/");
   revalidatePath("/hallazgos");
   revalidatePath("/cuentas");
   redirect(`/cuentas?auditada=${encodeURIComponent(customerId)}`);
+}
+
+export async function auditAllAction() {
+  const result = await auditConnectedCustomers();
+  revalidatePath("/");
+  revalidatePath("/hallazgos");
+  revalidatePath("/cuentas");
+  redirect(`/cuentas?lote=${result.audited}&fallidas=${result.failed}`);
 }
 
 export async function decisionAction(formData: FormData) {
@@ -74,4 +81,9 @@ export async function explainAction(formData: FormData) {
   }
   revalidatePath(`/hallazgos/${findingId}`);
   redirect(`/hallazgos/${findingId}`);
+}
+
+function publicError(error: unknown): string {
+  const message = error instanceof Error ? error.message : "Falló la auditoría.";
+  return message.slice(0, 280);
 }

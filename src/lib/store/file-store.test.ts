@@ -43,4 +43,29 @@ describe("historial de decisiones", () => {
     const kept = await store.getFinding(keyword.id);
     expect(kept?.status).toBe("dismissed");
   });
+
+  it("reemplaza el refresh token si el mismo correo vuelve a conectar", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "gads-"));
+    directories.push(directory);
+    const store = createFileStore(path.join(directory, "store.json"));
+    const input = {
+      googleEmail: "auditor@example.com",
+      accessMode: "direct" as const,
+      customers: [
+        {
+          externalId: "1234567890",
+          name: "Cliente",
+          currencyCode: "ARS",
+          timeZone: "America/Argentina/Buenos_Aires",
+          access: "direct" as const,
+          loginCustomerId: null,
+        },
+      ],
+    };
+    const first = await store.saveConnection({ ...input, refreshToken: "token-viejo" });
+    const second = await store.saveConnection({ ...input, refreshToken: "token-nuevo" });
+    expect(second.id).toBe(first.id);
+    expect(await store.listConnections()).toEqual([expect.objectContaining({ refreshToken: "token-nuevo" })]);
+    expect(await store.listCustomers()).toHaveLength(1);
+  });
 });
