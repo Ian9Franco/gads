@@ -87,8 +87,7 @@ export class GoogleAdsClient {
     const text = await response.text();
     const payload = text ? safeJson(text) : {};
     if (!response.ok) {
-      const message = googleErrorMessage(payload) ?? `Google Ads respondió ${response.status}.`;
-      throw new GoogleAdsError(message, response.status, requestId);
+      throw new GoogleAdsError(googleAdsErrorMessage(payload, response.status), response.status, requestId);
     }
     return payload;
   }
@@ -102,10 +101,26 @@ function safeJson(text: string): unknown {
   }
 }
 
-function googleErrorMessage(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object") return null;
-  const error = (payload as { error?: { message?: string } }).error;
-  return error?.message ?? null;
+export function googleAdsErrorMessage(payload: unknown, status: number): string {
+  const details = googleAdsDetails(payload);
+  const text = details[0] ?? `Google Ads respondió ${status}.`;
+  return text.length > 400 ? `${text.slice(0, 397)}…` : text;
+}
+
+function googleAdsDetails(payload: unknown): string[] {
+  if (!payload || typeof payload !== "object") return [];
+  const error = (payload as { error?: { message?: string; details?: unknown[] } }).error;
+  const messages: string[] = [];
+  for (const detail of error?.details ?? []) {
+    if (!detail || typeof detail !== "object") continue;
+    const errors = (detail as { errors?: { message?: string }[] }).errors;
+    if (!Array.isArray(errors)) continue;
+    for (const item of errors) {
+      if (item?.message) messages.push(item.message);
+    }
+  }
+  if (messages.length > 0) return messages;
+  return error?.message ? [error.message] : [];
 }
 
 export async function refreshAccessToken(refreshToken: string): Promise<string> {

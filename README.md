@@ -28,7 +28,7 @@ Google Ads no ofrece un alcance OAuth exclusivamente de lectura. El cliente HTTP
 
 ## Configuración
 
-Los pasos para salir de la muestra y leer clientes reales están en [docs/leer-clientes-reales.md](docs/leer-clientes-reales.md).
+Los pasos para salir de la muestra y leer clientes reales están en [docs/leer-clientes-reales.md](docs/leer-clientes-reales.md). Las mejoras hechas y las que faltan decidir están en [docs/mejoras.md](docs/mejoras.md).
 
 1. Habilitá **Google Ads API** en un proyecto de Google Cloud. Desde el 9 de septiembre de 2026 el developer token no se usa. El nivel de acceso pertenece al proyecto.
 2. Si el proyecto está en Test, pedí **Explorer** en la página de Google Ads API (hasta 2.880 operaciones por día contra cuentas reales).

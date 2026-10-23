@@ -30,14 +30,22 @@ export async function loadAuditAccount(
 
   const campaignRows = await client.search(
     account.externalId,
-    `SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, segments.date, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.conversions_value, metrics.search_budget_lost_impression_share FROM campaign WHERE ${range} AND campaign.status != 'REMOVED'`,
+    `SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, segments.date, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.conversions_value FROM campaign WHERE ${range} AND campaign.status != 'REMOVED'`,
     login,
+  );
+  const lostRows = await optionalSearch(
+    client,
+    account.externalId,
+    `SELECT campaign.id, segments.date, metrics.impressions, metrics.search_budget_lost_impression_share FROM campaign WHERE ${range} AND campaign.advertising_channel_type = 'SEARCH' AND campaign.status != 'REMOVED'`,
+    login,
+    notes,
+    "impresiones perdidas por presupuesto",
   );
 
   const keywords = await optionalSearch(
     client,
     account.externalId,
-    `SELECT ad_group_criterion.criterion_id, ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type, ad_group_criterion.status, campaign.name, ad_group.name, segments.date, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions FROM keyword_view WHERE ${range} AND ad_group_criterion.status != 'REMOVED'`,
+    `SELECT ad_group.id, ad_group_criterion.criterion_id, ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type, ad_group_criterion.status, campaign.name, ad_group.name, segments.date, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions FROM keyword_view WHERE ${range} AND ad_group_criterion.status != 'REMOVED' AND metrics.cost_micros > 0`,
     login,
     notes,
     "palabras clave",
@@ -45,7 +53,7 @@ export async function loadAuditAccount(
   const searchTerms = await optionalSearch(
     client,
     account.externalId,
-    `SELECT search_term_view.search_term, campaign.name, segments.date, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions FROM search_term_view WHERE ${range}`,
+    `SELECT search_term_view.search_term, campaign.name, segments.date, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions FROM search_term_view WHERE ${range} AND metrics.cost_micros > 0`,
     login,
     notes,
     "términos de búsqueda",
@@ -53,7 +61,7 @@ export async function loadAuditAccount(
   const ads = await optionalSearch(
     client,
     account.externalId,
-    `SELECT ad_group_ad.ad.id, ad_group_ad.status, ad_group_ad.policy_summary.approval_status, campaign.name, ad_group.name, segments.date, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions FROM ad_group_ad WHERE ${range} AND ad_group_ad.status != 'REMOVED'`,
+    `SELECT ad_group_ad.ad.id, ad_group_ad.status, ad_group_ad.policy_summary.approval_status, campaign.name, ad_group.name, segments.date, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions FROM ad_group_ad WHERE ${range} AND ad_group_ad.status != 'REMOVED' AND metrics.impressions > 0`,
     login,
     notes,
     "anuncios",
@@ -65,6 +73,14 @@ export async function loadAuditAccount(
     login,
     notes,
     "conversiones",
+  );
+  const disapproved = await optionalSearch(
+    client,
+    account.externalId,
+    `SELECT ad_group_ad.ad.id, ad_group_ad.status, ad_group_ad.policy_summary.approval_status, campaign.name, ad_group.name FROM ad_group_ad WHERE ad_group_ad.status = 'ENABLED' AND ad_group_ad.policy_summary.approval_status = 'DISAPPROVED'`,
+    login,
+    notes,
+    "anuncios rechazados",
   );
   const recommendations = await optionalSearch(
     client,
@@ -83,10 +99,10 @@ export async function loadAuditAccount(
       currencyCode: account.currencyCode,
       period,
       conversionActionsEnabled: conversions.length,
-      campaigns: aggregateCampaigns(campaignRows, period),
+      campaigns: withSearchBudgetLoss(aggregateCampaigns(campaignRows, period), lostRows, period),
       keywords: aggregateKeywords(keywords, period),
       searchTerms: aggregateSearchTerms(searchTerms, period),
-      ads: aggregateAds(ads, period),
+      ads: mergeDisapproved(aggregateAds(ads, period), disapproved),
       googleRecommendations: recommendations.map((row) => ({
         type: str(obj(row.recommendation).type) || "UNKNOWN",
         campaignName: str(obj(row.campaign).name) || undefined,
@@ -112,7 +128,7 @@ async function optionalSearch(
 }
 
 function aggregateCampaigns(rows: Row[], period: AuditAccount["period"]): CampaignAudit[] {
-  const map = new Map<string, CampaignAudit & { lostWeight: number; lostImpressions: number }>();
+  const map = new Map<string, CampaignAudit>();
   for (const row of rows) {
     const campaign = obj(row.campaign);
     const id = str(campaign.id);
@@ -127,43 +143,47 @@ function aggregateCampaigns(rows: Row[], period: AuditAccount["period"]): Campai
         recent: empty(),
         previous: empty(),
         searchBudgetLostImpressionShare: null,
-        lostWeight: 0,
-        lostImpressions: 0,
       };
-    const metrics = readMetrics(row);
-    const date = str(obj(row.segments).date);
-    addInto(current, date, period, metrics);
-    const lost = num(obj(row.metrics).searchBudgetLostImpressionShare);
-    if (date && inRange(date, period.recentStart, period.recentEnd) && metrics.impressions > 0) {
-      current.lostWeight += lost * metrics.impressions;
-      current.lostImpressions += metrics.impressions;
-    }
+    addInto(current, str(obj(row.segments).date), period, readMetrics(row));
     map.set(id, current);
   }
-  return [...map.values()].map((campaign) => ({
-    id: campaign.id,
-    name: campaign.name,
-    status: campaign.status,
-    channel: campaign.channel,
-    recent: campaign.recent,
-    previous: campaign.previous,
-    searchBudgetLostImpressionShare:
-      campaign.lostImpressions > 0 ? campaign.lostWeight / campaign.lostImpressions : null,
-  }));
+  return [...map.values()];
+}
+
+function withSearchBudgetLoss(campaigns: CampaignAudit[], rows: Row[], period: AuditAccount["period"]): CampaignAudit[] {
+  const weight = new Map<string, { lost: number; impressions: number }>();
+  for (const row of rows) {
+    const id = str(obj(row.campaign).id);
+    const date = str(obj(row.segments).date);
+    const impressions = num(obj(row.metrics).impressions);
+    const lost = num(obj(row.metrics).searchBudgetLostImpressionShare);
+    if (!id || !inRange(date, period.recentStart, period.recentEnd) || impressions <= 0) continue;
+    const current = weight.get(id) ?? { lost: 0, impressions: 0 };
+    current.lost += lost * impressions;
+    current.impressions += impressions;
+    weight.set(id, current);
+  }
+  return campaigns.map((campaign) => {
+    const totals = weight.get(campaign.id);
+    if (!totals || totals.impressions <= 0) return campaign;
+    return { ...campaign, searchBudgetLostImpressionShare: totals.lost / totals.impressions };
+  });
 }
 
 function aggregateKeywords(rows: Row[], period: AuditAccount["period"]): KeywordAudit[] {
   const map = new Map<string, KeywordAudit>();
   for (const row of rows) {
     const criterion = obj(row.adGroupCriterion);
-    const id = str(criterion.criterionId);
-    if (!id) continue;
+    const criterionId = str(criterion.criterionId);
+    const adGroupId = str(obj(row.adGroup).id);
+    if (!criterionId) continue;
+    const id = `${adGroupId}:${criterionId}`;
     const keyword = obj(criterion.keyword);
     const current =
       map.get(id) ??
       {
         id,
-        text: str(keyword.text) || id,
+        text: str(keyword.text) || criterionId,
         matchType: str(keyword.matchType) || "",
         campaignName: str(obj(row.campaign).name),
         adGroupName: str(obj(row.adGroup).name),
@@ -175,6 +195,32 @@ function aggregateKeywords(rows: Row[], period: AuditAccount["period"]): Keyword
       add(current.recent, readMetrics(row));
     }
     map.set(id, current);
+  }
+  return [...map.values()];
+}
+
+function mergeDisapproved(ads: AdAudit[], rows: Row[]): AdAudit[] {
+  const map = new Map(ads.map((ad) => [ad.id, { ...ad }]));
+  for (const row of rows) {
+    const groupAd = obj(row.adGroupAd);
+    const id = str(obj(groupAd.ad).id);
+    if (!id) continue;
+    const status = str(groupAd.status) || "ENABLED";
+    const approvalStatus = str(obj(groupAd.policySummary).approvalStatus) || "DISAPPROVED";
+    const current = map.get(id);
+    if (current) {
+      current.status = status;
+      current.approvalStatus = approvalStatus;
+      continue;
+    }
+    map.set(id, {
+      id,
+      campaignName: str(obj(row.campaign).name),
+      adGroupName: str(obj(row.adGroup).name),
+      status,
+      approvalStatus,
+      recent: empty(),
+    });
   }
   return [...map.values()];
 }

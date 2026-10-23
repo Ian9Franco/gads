@@ -116,14 +116,17 @@ export function createFileStore(filePath: string): AuditorStore {
     saveConnection: (input) =>
       locked(async () => {
         const data = await read();
-        const connection: Connection = {
+        const previous = data.connections.find((item) => item.googleEmail === input.googleEmail);
+        const connection: Connection = previous ?? {
           id: randomUUID(),
           googleEmail: input.googleEmail,
           accessMode: input.accessMode,
           refreshToken: input.refreshToken,
           createdAt: new Date().toISOString(),
         };
-        data.connections.push(connection);
+        connection.accessMode = input.accessMode;
+        connection.refreshToken = input.refreshToken;
+        if (!previous) data.connections.push(connection);
         for (const incoming of input.customers) {
           const existing = data.customers.find((customer) => customer.externalId === incoming.externalId);
           if (existing) {

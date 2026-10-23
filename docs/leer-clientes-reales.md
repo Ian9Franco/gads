@@ -61,7 +61,7 @@ El correo que va a autorizar la app tiene que existir ahí con nivel **Solo lect
 
 Elegí uno de estos dos caminos. No hace falta configurar los dos. Al autorizar, el auditor detecta cuál es.
 
-**MCC (cuenta administradora).** Invitá ese correo a la MCC con Solo lectura. El auditor lista los clientes activos que no son administradores (`ENABLED`, nivel 1 o más) y consulta cada uno con el id de la MCC. Cuentas en pausa, canceladas o que son otra MCC no aparecen.
+**MCC (cuenta administradora).** Invitá ese correo a la MCC con Solo lectura. El auditor lista los clientes activos que no son administradores (`ENABLED`, nivel 1 o más), deja afuera las cuentas de prueba y las ocultas, y consulta cada uno con el id de la MCC. Cuentas en pausa, canceladas o que son otra MCC no aparecen.
 
 **Invitación directa.** En cada cliente, **Administrador → Acceso y seguridad**, invitación al mismo correo con Solo lectura. Esas cuentas aparecen como acceso directo, sin MCC.
 
@@ -100,7 +100,7 @@ npm run dev
 3. Apretá **Conectar con Google** e iniciá sesión con el correo que tiene Solo lectura.
 4. Aceptá el permiso. Si Google avisa que la app no está verificada, es el estado Prueba del paso 2: podés continuar con tu usuario de prueba.
 5. Si todo cierra, caes en **Cuentas** con el aviso de conexión guardada. Cada fila muestra el nombre, el id de 10 dígitos y si el acceso es MCC o directo.
-6. Apretá **Auditar** en la cuenta que quieras. Al terminar, los hallazgos están en el inicio y en **Hallazgos**.
+6. Apretá **Auditar** en la cuenta que quieras, o **Auditar todas** si ya hay varias conectadas. Al terminar, los hallazgos están en el inicio y en **Hallazgos**. Si una cuenta accesible no se pudo leer, las demás igual se guardan y Cuentas muestra cuáles se omitieron. Volver a conectar con el mismo correo reemplaza el token anterior.
 
 La muestra Da Milán sigue en la lista. Las cuentas nuevas no llevan la marca «Muestra».
 
